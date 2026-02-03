@@ -1,0 +1,58 @@
+defaults:
+  - _self_
+  - augmentations: symmetric.yaml
+  - wandb: private.yaml
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+# disable hydra outputs
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+
+name: "simclr-imagenet100"
+method: "simclr"
+backbone:
+  name: "resnet18"
+method_kwargs:
+  proj_hidden_dim: 4096
+  proj_output_dim: 512
+  temperature: 0.2
+  projector_type: "standard"
+  add_projector_classifier: true # add this everywehere we want to log projector metrics as a method kwarg
+data:
+  dataset: imagenet100
+  train_path: "/imagenet100_real/train" # yash change temprorary to see if this works
+  val_path: "/imagenet100_real/val" # absolute path into squashfs overlay
+  # train_path: "./datasets/imagenet-100/train"
+  # val_path: "./datasets/imagenet-100/val"
+  preload: True  # This enables the in-memory cache
+  format: "image_folder"
+  num_workers: 4
+optimizer:
+  name: "lars"
+  batch_size: 128
+  lr: 0.3
+  classifier_lr: 0.1
+  weight_decay: 1e-4
+  kwargs:
+    clip_lr: True
+    eta: 0.02
+    exclude_bias_n_norm: True
+scheduler:
+  name: "warmup_cosine"
+checkpoint:
+  enabled: True
+  dir: "trained_models"
+  frequency: 1
+auto_resume:
+  enabled: True
+
+# overwrite PL stuff
+max_epochs: 400
+devices: [0]
+sync_batchnorm: True
+accelerator: "gpu"
+strategy: "ddp"
+precision: 16-mixed

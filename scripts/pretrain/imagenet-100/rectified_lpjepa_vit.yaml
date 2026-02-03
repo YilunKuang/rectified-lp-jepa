@@ -1,0 +1,96 @@
+defaults:
+  - _self_
+  - wandb: private.yaml
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+# disable hydra outputs
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+
+name: "rectified-lpjepa-imagenet100-vit"
+method: "rectified_lpjepa"
+backbone:
+  name: "vit_small"
+
+method_kwargs:
+  target_distribution: "rectified_lp_distribution"
+  lp_norm_parameter: 1.0
+  proj_hidden_dim: 2048
+  proj_output_dim: 2048
+  invariance_loss_weight: 25.0
+  rdm_reg_loss_weight: 125.0
+  projector_type: "rectified_mlp"
+  num_projections: 8192
+  projection_vectors_type: "random"
+  add_projector_classifier: true
+  mean_shift_value: 0.0
+  mode_of_sigma: "sigma_GN"
+  logging_interval: 50
+
+mlp_probe:
+  enabled: False
+  num_layers: 3
+
+data:
+  dataset: imagenet100
+  train_path: "/imagenet100_real/train"
+  val_path: "/imagenet100_real/val"
+  preload: True
+  format: "image_folder"
+  num_workers: 4
+
+augmentations:
+  - rrc:
+      enabled: True
+      crop_min_scale: 0.2
+      crop_max_scale: 1.0
+    color_jitter:
+      enabled: True
+      brightness: 0.4
+      contrast: 0.4
+      saturation: 0.2
+      hue: 0.1
+      prob: 0.8
+    grayscale:
+      enabled: True
+      prob: 0.2
+    gaussian_blur:
+      enabled: True
+      prob: 0.5
+    solarization:
+      enabled: True
+      prob: 0.1
+    equalization:
+      enabled: False
+      prob: 0.0
+    horizontal_flip:
+      enabled: True
+      prob: 0.5
+    crop_size: 224
+    num_crops: 2
+
+optimizer:
+  name: "adamw"
+  batch_size: 128
+  lr: 5e-4
+  classifier_lr: 5e-3
+  weight_decay: 1e-4
+scheduler:
+  name: "warmup_cosine"
+checkpoint:
+  enabled: True
+  dir: "trained_models"
+  frequency: 1
+auto_resume:
+  enabled: False
+
+# overwrite PL stuff
+max_epochs: 1000
+devices: [0]
+sync_batchnorm: True
+accelerator: "gpu"
+strategy: "ddp"
+precision: 16-mixed
