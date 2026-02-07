@@ -67,21 +67,39 @@ class RectifiedLpJEPA(nn.Module):
 To induce sparsity, we align our features to a **Rectified Generalized Gaussian**. Decreasing the Mean Shift ($\mu$) pushes more of the distribution below zero, resulting in higher sparsity after rectification.
 
 ```python
+def sample_product_laplace(shape, device, loc=0.0, scale=1/math.sqrt(2)):
+    """
+    Sample from the product Laplace distribution directly on the target device
+    using torch.distributions.Laplace.
+    """
+    # shape is (B, D)
+    loc_t = torch.tensor(loc, device=device)
+    scale_t = torch.tensor(scale, device=device)
+    laplace_dist = torch.distributions.Laplace(loc=loc_t, scale=scale_t)
+    return laplace_dist.sample(shape)
+
 def sample_rgg(shape, p=1.0, mu=0.0, device='cpu'):
     """
     Samples from Rectified Generalized Gaussian: ReLU(mu + sigma * GN_p).
     p=1.0 is Rectified Product Laplace (Sparsity prior).
     """
+    assert p > 0.0, "p must be > 0.0"
+    
     # sigma for unit variance of GN_p before rectification
     sigma = math.sqrt(math.gamma(1/p) / math.gamma(3/p)) / (p**(1/p))
-    
-    # Sample Generalized Gaussian GN_p(0, 1)
-    sign = torch.empty(shape, device=device).bernoulli_(0.5) * 2 - 1
-    gamma_dist = torch.distributions.Gamma(concentration=1.0/p, rate=1.0)
-    g = gamma_dist.sample(shape).to(device)
-    gn_samples = sign * (p * g).pow(1.0/p)
-    
-    return torch.relu(mu + sigma * gn_samples)
+
+    if p == 1.0:
+        return torch.relu(sample_product_laplace(shape, device, loc=mu, scale=sigma))
+    elif p == 2.0:
+        return torch.relu(mu + sigma * torch.randn(shape, device=device))
+    else:
+        # Sample Generalized Gaussian GN_p(0, 1). This is in general slower than Laplace and Gaussian.
+        sign = torch.empty(shape, device=device).bernoulli_(0.5) * 2 - 1
+        gamma_dist = torch.distributions.Gamma(concentration=1.0/p, rate=1.0)
+        g = gamma_dist.sample(shape).to(device)
+        gn_samples = sign * (p * g).pow(1.0/p)
+        
+        return torch.relu(mu + sigma * gn_samples)
 ```
 
 ---
