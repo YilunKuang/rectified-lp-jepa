@@ -1,15 +1,20 @@
 # Rectified LpJEPA: Minimal Example
 
-<!-- --- -->
+This document presents a minimal, self-contained implementation of **Rectified LpJEPA**, which learns sparse, non-negative representations by regularizing feature distributions towards a **Rectified Generalized Gaussian (RGG)** distribution.
 
-This document provides a minimal, self-contained implementation of **Rectified LpJEPA**. It induces sparse and non-negative representations by regularizing feature distributions towards a **Rectified Generalized Gaussian (RGG)** distribution.
+This guide is structured like a Jupyter Notebook. By copying each code block into a cell and running them sequentially, you can pretrain a Rectified LpJEPA model with a ResNet-18 backbone on CIFAR-100 for 100 epochs. The guide also walks through the key components of our method.
 
-This guide is structured like a Jupyter Notebook. If you copy each code block into a cell and run them sequentially, you will end up pretraining a ResNet-18 on CIFAR-100 for 100 epochs with sparse representations. This file also goes through the key sections of our method as well!
+Please note that this document is not intended to provide an optimal or fully tuned implementation of Rectified LpJEPA on CIFAR-100. Achieving leaderboard-level performance in self-supervised learning typically requires many additional details and careful tuning. Instead, we present a minimal and simplified implementation whose goal is to clearly illustrate how the method works.
 
-Please note that this document is not intended as an optimal implementation of training Rectified LpJEPA on CIFAR-100. We merely present the simplest version to showcase how our method works. For optimal implementation, run 
+For a more complete and performant implementation, please use the following training script:
 
 ```python
-python3 main_pretrain.py --config-path scripts/pretrain/cifar/ --config-name=rectified_lpjepa_cifar100.yaml ++wandb.entity=<ENTITY> ++wandb.project=<PROJECT> ++wandb.enabled=true
+python3 main_pretrain.py \
+  --config-path scripts/pretrain/cifar/ \
+  --config-name=rectified_lpjepa_cifar100.yaml \
+  ++wandb.entity=<ENTITY> \
+  ++wandb.project=<PROJECT> \
+  ++wandb.enabled=true
 ```
 
 Before starting, install the minimal dependencies:
@@ -20,7 +25,7 @@ pip install torch torchvision timm tqdm
 ---
 
 ## 1. Imports and Utilities
-First, we import our core utilities. We use `timm` for the backbone and standard `torchvision` for data handling. They are awesome!
+First, we import our core utilities. We use `timm` for the backbone and standard `torchvision` for data handling.
 
 ```python
 import torch, torch.nn as nn, torch.nn.functional as F
@@ -34,7 +39,8 @@ from torch.amp import GradScaler, autocast
 ---
 
 ## 2. The Rectified LpJEPA Model
-We define a 3-layer MLP projector that maintains a constant width (512 for ResNet-18, since the output dimension of ResNet-18 is 512). Crucially, the projector ends with a **ReLU**, ensuring the learned representations are non-negative. Refer to Section 4 of our paper for more details. Adding a ReLU here is actually quite important: this ReLU is the main mechanism that produces \(\ell_0\) sparsity.
+
+Following common practice in self-supervised learning, we use a 3-layer MLP projector with width 512 on top of the ResNet-18 encoder. In our design, the projector has to end with a **ReLU**, which is crucially for the correctness of the RDMReg loss. Refer to Section 4 of our paper for more details.
 
 
 ```python
@@ -70,7 +76,8 @@ class RectifiedLpJEPA(nn.Module):
 ---
 
 ## 3. Sampling the Sparse Prior (RGG)
-To induce sparsity, we align our features to a **Rectified Generalized Gaussian**. Decreasing the Mean Shift ($\mu$) pushes more of the distribution below zero, resulting in higher sparsity after rectification.
+
+To induce sparsity, we align our features to a **Rectified Generalized Gaussian**. As we mentioned in the paper, we usually fix $\sigma=\Gamma(1/p)^{1/2}/(p^{1/p}\cdot\Gamma(3/p)^{1/2})$. In general, decreasing $p$ and $\mu$ results in higher sparsity both in terms of the L0 and L1 norm metrics defined in our paper.
 
 ```python
 def sample_product_laplace(shape, device, loc=0.0, scale=1/math.sqrt(2)):
@@ -111,8 +118,8 @@ def sample_rgg(shape, p=1.0, mu=0.0, device='cpu'):
 ---
 
 ## 4. The RDMReg Loss
-We use **Sliced Wasserstein Distance (SWD)** to match the feature distribution to our RGG samples. This is based on the **Cramér–Wold theorem**. By sorting random projections, we can efficiently compute the distance between two univariate distributions.
 
+We instantiate RDMReg using the two-sample **Sliced Wasserstein Distance (SWD)** to align the empirical feature distribution with samples from our RGG target. SWD approximates a high-dimensional distributional discrepancy by averaging 1D Wasserstein distances over many random projection directions. This is motivated by the **Cramér–Wold theorem**, which states that a distribution is characterized by its collection of one-dimensional projections—so matching many projected marginals encourages the full distributions to align.
 
 ```python
 def rdmreg_loss(z, target_samples, num_projections=256):
@@ -135,6 +142,7 @@ def rdmreg_loss(z, target_samples, num_projections=256):
 ---
 
 ## 5. Data Loading (CIFAR-100)
+
 We use a simple two-view augmentation strategy: each image is transformed twice to form a positive pair \((x_1, x_2)\). This setup is essential for self-supervised learning. The two images act as positives because they are different augmented views of the same underlying visual content, created by applying random transformations to the same image.
 
 ```python
@@ -165,7 +173,7 @@ train_loader = DataLoader(train_ds, batch_size=256, shuffle=True, num_workers=0,
 
 ## 6. Main Training Loop
 
-Our main loss is a combination of the **Invariance Loss** and the **RDMReg Loss**. The invariance loss, used in self-supervised learning, ensures that similar features stay close together, while the RDMReg loss adds a sparsity prior and also acts as a regularizer that helps prevent collapse. Finally, we assemble everything and optimize the combined objective.
+Our main loss is a combination of the **Invariance Loss** and the **RDMReg Loss**. The invariance loss, used in self-supervised learning, ensures that similar features stay close together, while the RDMReg loss preserves the maximum-entropy guarantees under the expected Lp norm constraints to prevent collapse while also leads to explicit L0 sparsity by the choice of the target RGG distribuion. Finally, we assemble everything and optimize the combined objective.
 
 
 ```python
@@ -215,9 +223,9 @@ for epoch in range(100):
 
 ## Key Parameters & Sparsity Control
 - **Mean Shift ($\mu$)**: Your **controllable sparsity parameter**. 
-    - **Lower $\mu$ (e.g., -2.0)**: Induces **higher sparsity** (fewer active features).
-    - **Higher $\mu$ (e.g., 0.5)**: Induces **lower sparsity** (denser representations).
+    - **Lower $\mu$ (e.g., -2.0)**: Induces **higher sparsity** (sparser features; more zeros in the features).
+    - **Higher $\mu$ (e.g., 0.5)**: Induces **lower sparsity** (denser features; less zeros in the features).
 - **Shape Parameter ($p$)**: 
-    - **$p=1.0$**: Rectified Product Laplace (sparse prior).
+    - **$p=1.0$**: Rectified Laplace (default choice).
     - **$p=2.0$**: Rectified Gaussian.
 - **Weights**: We recommend `lamb_inv=25.0` and `lamb_reg=125.0` for optimal performance.
