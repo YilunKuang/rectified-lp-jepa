@@ -1,10 +1,16 @@
 # Rectified LpJEPA: Minimal Example
-*Date: 2026-02-03*
----
+
+<!-- --- -->
 
 This document provides a minimal, self-contained implementation of **Rectified LpJEPA**. It induces sparse and non-negative representations by regularizing feature distributions towards a **Rectified Generalized Gaussian (RGG)** distribution.
 
 This guide is structured like a Jupyter Notebook. If you copy each code block into a cell and run them sequentially, you will end up pretraining a ResNet-18 on CIFAR-100 for 100 epochs with sparse representations. This file also goes through the key sections of our method as well!
+
+Please note that this document is not intended as an optimal implementation of training Rectified LpJEPA on CIFAR-100. We merely present the simplest version to showcase how our method works. For optimal implementation, run 
+
+```python
+python3 main_pretrain.py --config-path scripts/pretrain/cifar/ --config-name=rectified_lpjepa_cifar100.yaml ++wandb.entity=<ENTITY> ++wandb.project=<PROJECT> ++wandb.enabled=true
+```
 
 Before starting, install the minimal dependencies:
 ```bash
